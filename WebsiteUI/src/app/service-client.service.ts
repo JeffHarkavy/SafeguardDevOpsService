@@ -110,4 +110,19 @@ export class DevOpsServiceClient {
     return this.http.put(this.BASE + 'Plugins/' + encodeURIComponent(name), config, this.authHeader())
     .pipe(catchError(SCH.error<any>('DevOpsServiceClient', 'putPluginConfiguration')));
   }
+
+  postClientCertificate(base64CertificateData: string, passphrase?:string): Observable<any> {
+    const url = this.BASE + 'Safeguard/ClientCertificate';
+    const payload = {
+      Base64CertificateData: base64CertificateData,
+      Passphrase: passphrase
+    };
+    return this.http.post(url, payload, this.authHeader())
+      .pipe(catchError(SCH.error('DevOpsServiceClient', 'postClientCertificate')));
+  }
+
+  deleteClientCertificate(): Observable<any> {
+    return this.http.delete(this.BASE + 'Safeguard/ClientCertificate', this.authHeader())
+    .pipe(catchError(SCH.error<any>('DevOpsServiceClient', 'deleteClientCertificate')));
+  }
 }
