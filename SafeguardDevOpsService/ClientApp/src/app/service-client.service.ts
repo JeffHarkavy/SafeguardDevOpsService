@@ -64,7 +64,7 @@ export class DevOpsServiceClient {
       .pipe(catchError(this.error<any>('logon')));
   }
 
-  getCSR(certType: string, subjectName?: string, dnsSubjectAlternativeNames?: string, ipSubjectAlternativeNames?: string): Observable<any> {
+  getCSR(certType: string, subjectName?: string, dnsSubjectAlternativeNames?: string, ipSubjectAlternativeNames?: string, keySize?: number): Observable<any> {
     let url = this.BASE + 'Safeguard/CSR?certType=' + certType;
 
     if (subjectName) {
@@ -75,6 +75,9 @@ export class DevOpsServiceClient {
     }
     if (ipSubjectAlternativeNames) {
       url +=  '&sanIp=' + encodeURIComponent(ipSubjectAlternativeNames);
+    }
+    if (keySize) {
+      url +=  '&size=' + encodeURIComponent(keySize.toString());
     }
 
     const options = Object.assign({ responseType: 'text' }, this.authHeader());
@@ -132,9 +135,22 @@ export class DevOpsServiceClient {
       .pipe(catchError(this.error<any>('putPluginAccounts')));
   }
 
+  deletePluginAccounts(name: string, accounts: any[]): Observable<any[]> {
+    const options = Object.assign({ body: accounts }, this.authHeader());
+
+    return this.http.request('delete', this.BASE + 'Plugins/' + encodeURIComponent(name) + '/Accounts', options)
+      .pipe(catchError(this.error<any>('putPluginAccounts')));
+  }
+
   putPluginConfiguration(name: string, config: any): Observable<any> {
-    return this.http.put(this.BASE + 'Plugins/' + encodeURIComponent(name), config, this.authHeader())
+    const payload = { Configuration: config };
+    return this.http.put(this.BASE + 'Plugins/' + encodeURIComponent(name), payload, this.authHeader())
     .pipe(catchError(this.error<any>('putPluginConfiguration')));
+  }
+
+  deletePluginConfiguration(name: string): Observable<any> {
+    return this.http.delete(this.BASE + 'Plugins/' + encodeURIComponent(name), this.authHeader())
+    .pipe(catchError(this.error<any>('deletePluginConfiguration')));
   }
 
   getAvailableAccounts(filter?: string): Observable<any[]> {
@@ -148,6 +164,11 @@ export class DevOpsServiceClient {
       .pipe(catchError(this.error<any>('getAvailableAccounts')));
   }
 
+  getRetrievableAccounts(): Observable<any[]> {
+    return this.http.get(this.BASE + 'Safeguard/A2ARegistration/RetrievableAccounts', this.authHeader())
+      .pipe(catchError(this.error<any>('getRetrievableAccounts')));
+  }
+
   postClientCertificate(base64CertificateData: string, passphrase?:string): Observable<any> {
     const url = this.BASE + 'Safeguard/ClientCertificate';
     const payload = {
@@ -155,11 +176,16 @@ export class DevOpsServiceClient {
       Passphrase: passphrase
     };
     return this.http.post(url, payload, this.authHeader())
-      .pipe(catchError(SCH.error('DevOpsServiceClient', 'postClientCertificate')));
+      .pipe(catchError(this.error<any>('postClientCertificate')));
   }
 
   deleteClientCertificate(): Observable<any> {
     return this.http.delete(this.BASE + 'Safeguard/ClientCertificate', this.authHeader())
-    .pipe(catchError(SCH.error<any>('DevOpsServiceClient', 'deleteClientCertificate')));
+      .pipe(catchError(this.error<any>('deleteClientCertificate')));
+  }
+
+  putRetrievableAccounts(accounts: any[]): Observable<any[]> {
+    return this.http.put(this.BASE + 'Safeguard/A2ARegistration/RetrievableAccounts', accounts, this.authHeader())
+      .pipe(catchError(this.error<any>('putPluginAccounts')));
   }
 }

@@ -1,15 +1,16 @@
 import { Component, OnInit, ViewChild, ElementRef, Renderer2 } from '@angular/core';
 import { DevOpsServiceClient } from '../service-client.service';
-import { switchMap, map, concatAll, tap, distinctUntilChanged, debounceTime, finalize } from 'rxjs/operators';
+import { switchMap, map, concatAll, tap, distinctUntilChanged, debounceTime, finalize, catchError } from 'rxjs/operators';
 import { of, Observable, fromEvent } from 'rxjs';
 import { Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { UploadCertificateComponent } from '../upload-certificate/upload-certificate.component';
 import { EnterPassphraseComponent } from '../upload-certificate/enter-passphrase/enter-passphrase.component';
+import { CreateCsrComponent } from '../create-csr/create-csr.component';
 import * as $ from 'jquery';
 import { ViewportScroller } from '@angular/common';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
-import { EditPluginService } from '../edit-plugin.service';
+import { EditPluginService, EditPluginMode } from '../edit-plugin.service';
 import { MatDrawer } from '@angular/material/sidenav';
 import { AuthService } from '../auth.service';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -21,6 +22,8 @@ import { MatSnackBar } from '@angular/material/snack-bar';
   styleUrls: ['./main.component.scss']
 })
 export class MainComponent implements OnInit {
+
+  private snackBarDuration: number = 5000;
 
   constructor(
     private window: Window,
@@ -45,6 +48,8 @@ export class MainComponent implements OnInit {
 
   plugins = [];
   isLoading: boolean;
+  openDrawerProperties: boolean;
+  openDrawerAccounts: boolean;
 
   @ViewChild('drawer', { static: false }) drawer: MatDrawer;
 
@@ -74,9 +79,9 @@ export class MainComponent implements OnInit {
             } else {
               return of({});
             }
-          })
+          }),
+          finalize(() => this.isLoading = false)
         ).subscribe(() => {
-          this.isLoading = false;
         });
     }
 
@@ -146,14 +151,6 @@ export class MainComponent implements OnInit {
   }
 
   initializePlugins(): Observable<any> {
-    const knownPlugins = [
-      ['AzureKeyVault', 'Azure Key Vault'],
-      ['SmsTextEmail', 'SMS'],
-      ['HashiCorpVault', 'Hashi Corp Vault'],
-      ['JenkinsSecrets', 'Jenkins Secrets'],
-      ['KubernetesSecrets', 'Kubernetes Secrets']
-    ];
-
     const custom = {
       DisplayName: 'Upload Custom Plugin',
       IsUploadCustom: true,
@@ -164,35 +161,32 @@ export class MainComponent implements OnInit {
     return this.serviceClient.getPlugins().pipe(
       // Flatten array so each plugin is emitted individually
       concatAll(),
+      tap((plugin: any) => {
+        plugin.Accounts = [];
+        this.plugins.push(plugin);
+      }),
       // Get the plugin accounts
       switchMap((plugin: any) => {
-        console.log(plugin);
         return this.serviceClient.getPluginAccounts(plugin.Name).pipe(
           map(accounts => {
             plugin.Accounts = accounts;
+            plugin.Accounts.forEach(a => {
+              a.Id = a.AccountId;
+              a.Name = a.AccountName;
+              a.SystemName = a.AssetName;
+              a.SystemNetworkAddress = a.NetworkAddress;
+            });
             return plugin;
           })
         );
       }),
       tap((plugin: any) => {
-        const knownPlugin = knownPlugins.find(p => p[0] === plugin.Name);
-        if (knownPlugin) {
-          plugin.DisplayName = knownPlugin[1];
-        } else {
-          plugin.DisplayName = plugin.Name;
+        const p = this.plugins.find(x => x.Name === plugin.Name);
+        if (p) {
+          Object.assign(p, plugin);
         }
-
-        // Consider a plugin configured if any accounts are set or any configuration properties are set
-        if (plugin.Accounts.length > 0) {
-          plugin.IsConfigured = true;
-        } else {
-          Object.keys(plugin.Configuration).forEach(key => {
-            if (plugin.Configuration[key]) {
-              plugin.IsConfigured = true;
-            }
-          });
-        }
-        this.plugins.push(plugin);
+        // TODO: Consider a plugin configured if any accounts are set?
+        plugin.IsConfigurationSetup = plugin.Accounts.length > 0;
       })
     );
   }
@@ -220,16 +214,34 @@ export class MainComponent implements OnInit {
     this.serviceClient.deleteClientCertificate().subscribe();
   }
 
+  createCSR(certificateType: string) {
+    const dialogRef = this.dialog.open(CreateCsrComponent, {
+      // disableClose: true
+      data: {certificateType: certificateType}
+    });
+
+    dialogRef.afterClosed().subscribe(
+      result => {
+        if (result) {
+        }
+      }
+    );
+  }
+
   addClientCertificate(e: Event): void {
+    let certificateFileName: string = '';
     e.preventDefault();
 
     const dialogRef = this.dialog.open(UploadCertificateComponent, {
       // disableClose: true
+      data: {certificateType: 'Client'}
     });
 
     dialogRef.afterClosed().pipe(
       switchMap(
         (fileData) => {
+          certificateFileName = fileData.fileName;
+
           if (fileData?.fileType !== 'application/x-pkcs12') {
             return of([fileData]);
           }
@@ -240,7 +252,8 @@ export class MainComponent implements OnInit {
 
           return ref.afterClosed().pipe(
             // Emit fileData as well as passphrase
-            map(passphraseData => [fileData, passphraseData])
+            // if passphraseData == undefined then they canceled the dialog
+            map(passphraseData => (passphraseData == undefined) ? [] : [fileData, passphraseData])
           );
         }
       ),
@@ -255,14 +268,56 @@ export class MainComponent implements OnInit {
           return this.serviceClient.postConfiguration(fileContents, passphrase);
         }
       )
-    ).subscribe(config => {
-      this.initializeConfig(config);
-    });
+    ).subscribe(
+      config => {
+        this.initializeConfig(config);
+      },
+      error => {
+        if (error.error?.Message?.includes('specified network password is not correct')) {
+          // bad password, have another try?
+          // it's all we get
+          this.snackBar.open('The password for the certificate in ' + certificateFileName + ' was not correct.', 'Dismiss', {duration: this.snackBarDuration});
+        }
+      });
   }
-
-  editConfiguration(plugin: any): void {
-    this.editPluginService.setEdit(plugin);
+  
+  editPlugin(plugin: any): void {
+    this.editPluginService.openProperties(plugin);
+    this.openDrawerProperties = true;
     this.drawer.open();
+
+    this.editPluginService.notifyEvent$.subscribe((data) => {
+      switch (data.mode) {
+        case EditPluginMode.Accounts: {
+          this.drawer.close();
+          this.openDrawerProperties = false;
+          this.openDrawerAccounts = true;
+          this.drawer.open();
+        }
+        break;
+        case EditPluginMode.Properties: {
+          this.drawer.close();
+          this.openDrawerProperties = true;
+          this.openDrawerAccounts = false;
+          this.drawer.open();
+        }
+        break;
+        case EditPluginMode.None: {
+          this.drawer.close();
+          this.openDrawerProperties = false;
+          this.openDrawerAccounts = false;
+          const indx = this.plugins.findIndex(x => x.Name === plugin.Name);
+          if (indx > -1) {
+            if (data.plugin) {
+              this.plugins[indx] = data.plugin;
+            } else {
+              this.plugins.splice(indx, 1);
+            }
+          }
+        }
+        break;
+      }
+    });
   }
 
   uploadPlugin(): void {
@@ -277,6 +332,8 @@ export class MainComponent implements OnInit {
 
     const fileSelected = files[0];
 
+    this.snackBar.open('Uploading plugin...');
+
     this.serviceClient.postPluginFile(fileSelected).pipe(
       finalize(() => {
         // Clear the selection
@@ -288,11 +345,10 @@ export class MainComponent implements OnInit {
         if (typeof x === 'string') {
           this.snackBar.open(x, 'OK', { duration: 10000 });
         } else {
-          x.IsConfigured = false;
+          x.IsConfigurationSetup = false;
           x.Accounts = [];
           x.DisplayName = x.Name;
           this.plugins.push(x);
-          console.log('plugin added');
         }
       });
   }

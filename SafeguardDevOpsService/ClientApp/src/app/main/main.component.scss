@@ -28,6 +28,23 @@ mat-drawer-container {
 
   .info-column {
     margin: 0 20px;
+    .no-client-certificate {
+      .bold {
+        font-weight: bold;
+      }
+      .buttons {
+        div {
+          width: 50%;
+          display: inline-block;
+        }
+        .left {
+          text-align: left;
+        }
+        .right {
+          text-align: right;
+        }
+      }
+    }
   }
   
   .info-label {
@@ -165,4 +182,12 @@ path.arrow:nth-child(3) {
 }
 marker.arrow3 {
   fill: $tiki-sunrise;
+}
+
+path.arrow:nth-child(4) {
+  stroke: $azalea-pink;
+  color: $azalea-pink;
+}
+marker.arrow3 {
+  fill: $azalea-pink;
 }
